@@ -19,9 +19,13 @@ module CanCan
 
       return r if r
 
-      if id_param_key.is_a?(Array)
+      if id_param_key.kind_of?(Array)
         for ind_id_key in id_param_key
-          return @params[ind_id_key].to_s if @params[ind_id_key].present?
+          if @params[ind_id_key].present?
+            v = @params[ind_id_key].to_s
+            v = resource_base.send(@options[:find_by], v)
+            return v if v
+          end
         end
       else
         return resource_base.send(@options[:find_by], id_param)
