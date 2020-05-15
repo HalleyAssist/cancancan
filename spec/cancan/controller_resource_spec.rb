@@ -538,7 +538,7 @@ describe CanCan::ControllerResource do
       allow(Model).to receive(:find_by).with(name: 'foo') { model }
 
       params.merge!(action: 'show', id: 'foo')
-      resource = CanCan::ControllerResource.new(controller, find_by: :name, id_param: [:id, :test,])
+      resource = CanCan::ControllerResource.new(controller, find_by: :name, id_param: [:id, :test])
       resource.load_resource
       expect(controller.instance_variable_get(:@model)).to eq(model)
     end

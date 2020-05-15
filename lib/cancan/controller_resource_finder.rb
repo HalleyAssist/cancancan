@@ -9,7 +9,13 @@ module CanCan
         parent_resource.send(name)
       elsif @options[:find_by]
         find_resource_using_find_by
-      elsif id_param_key.kind_of?(Array)
+      else
+        find_resource_by_id
+      end
+    end
+
+    def find_resource_by_id
+      if id_param_key.is_a? Array
         for ind_id_key in id_param_key
           if @params[ind_id_key].present?
             v = @params[ind_id_key].to_s
@@ -27,7 +33,7 @@ module CanCan
 
       return r if r
 
-      if id_param_key.kind_of?(Array)
+      if id_param_key.is_a? Array
         for ind_id_key in id_param_key
           if @params[ind_id_key].present?
             v = @params[ind_id_key].to_s
@@ -46,15 +52,34 @@ module CanCan
     end
 
     def find_by_find_by_finder
-      resource_base.find_by(@options[:find_by].to_sym => id_param) if resource_base.respond_to? :find_by
+      return unless resource_base.respond_to? :find_by
+      if id_param_key.is_a? Array
+        for ind_id_key in id_param_key
+          if @params[ind_id_key].present?
+            v = @params[ind_id_key].to_s
+            v = resource_base.find_by(@options[:find_by].to_sym => v) 
+            return v if v
+          end
+        end
+      else
+        return resource_base.find_by(@options[:find_by].to_sym => id_param) 
+      end
+      
     end
 
     def id_param
-      @params[id_param_key].to_s if @params[id_param_key].present?
+      l_key = id_param_key
+      if l_key.is_a? Array
+        for ind_id_key in l_key
+          return @params[ind_id_key].to_s if @params[ind_id_key].present?
+        end
+      else
+        return @params[id_param_key].to_s if @params[id_param_key].present?
+      end
     end
 
     def id_param_key
-      if @options[:id_param]
+      if @options[:id_param].present?
         @options[:id_param]
       else
         parent? ? :"#{name}_id" : :id
