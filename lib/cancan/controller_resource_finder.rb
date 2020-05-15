@@ -15,7 +15,15 @@ module CanCan
     end
 
     def find_resource_using_find_by
-      find_by_dynamic_finder || find_by_find_by_finder || resource_base.send(@options[:find_by], id_param)
+      r = find_by_dynamic_finder || find_by_find_by_finder
+      return r if r
+      if id_param_key.kind_of?(Array) then
+        for ind_id_key in id_param_key
+          return @params[ind_id_key].to_s if @params[ind_id_key].present?
+        end
+      else
+        return resource_base.send(@options[:find_by], id_param)
+      end
     end
 
     def find_by_dynamic_finder

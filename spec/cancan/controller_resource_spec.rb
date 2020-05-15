@@ -478,6 +478,26 @@ describe CanCan::ControllerResource do
       expect(controller.instance_variable_get(:@model)).to eq(model)
     end
 
+    it 'loads resource using array ID param first' do
+      model = Model.new
+      allow(Model).to receive(:find).with('123') { model }
+
+      params[:the_model] = 123
+      resource = CanCan::ControllerResource.new(controller, id_param: [:the_model])
+      resource.load_resource
+      expect(controller.instance_variable_get(:@model)).to eq(model)
+    end
+
+    it 'loads resource using array ID param second' do
+      model = Model.new
+      allow(Model).to receive(:find).with('123') { model }
+
+      params[:the_model] = 123
+      resource = CanCan::ControllerResource.new(controller, id_param: [:not_exist, :the_model])
+      resource.load_resource
+      expect(controller.instance_variable_get(:@model)).to eq(model)
+    end
+
     # CVE-2012-5664
     it 'always converts id param to string' do
       params[:the_model] = { malicious: 'I am' }
