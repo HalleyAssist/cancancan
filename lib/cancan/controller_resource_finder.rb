@@ -9,8 +9,16 @@ module CanCan
         parent_resource.send(name)
       elsif @options[:find_by]
         find_resource_using_find_by
+      elsif id_param_key.kind_of?(Array)
+        for ind_id_key in id_param_key
+          if @params[ind_id_key].present?
+            v = @params[ind_id_key].to_s
+            v = adapter.find(resource_base, v)
+            return v if v
+          end
+        end
       else
-        adapter.find(resource_base, id_param)
+        return adapter.find(resource_base, id_param)
       end
     end
 
