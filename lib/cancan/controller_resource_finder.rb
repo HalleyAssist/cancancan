@@ -16,8 +16,10 @@ module CanCan
 
     def find_resource_using_find_by
       r = find_by_dynamic_finder || find_by_find_by_finder
+
       return r if r
-      if id_param_key.kind_of?(Array) then
+
+      if id_param_key.is_a?(Array)
         for ind_id_key in id_param_key
           return @params[ind_id_key].to_s if @params[ind_id_key].present?
         end
