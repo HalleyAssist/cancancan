@@ -49,7 +49,7 @@ module CanCan
 
       options == {} ||
         options[:except] && !action_exists_in?(options[:except]) ||
-        action_exists_in?(options[:only]) ||
+        options[:only] && action_exists_in?(options[:only]) ||
         action_optional?(options[:optional])
     end
 
