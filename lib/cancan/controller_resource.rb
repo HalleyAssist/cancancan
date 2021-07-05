@@ -49,7 +49,8 @@ module CanCan
 
       options == {} ||
         options[:except] && !action_exists_in?(options[:except]) ||
-        action_exists_in?(options[:only])
+        action_exists_in?(options[:only]) ||
+        action_optional?(options[:optional])
     end
 
     protected
@@ -128,6 +129,12 @@ module CanCan
 
     def action_exists_in?(options)
       Array(options).include?(@params[:action].to_sym)
+    end
+
+    def action_optional?(optional_enabled)
+      return false unless optional_enabled
+      
+      return get_id_value.nil?
     end
 
     def adapter

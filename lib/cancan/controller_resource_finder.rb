@@ -14,6 +14,18 @@ module CanCan
       end
     end
 
+    def get_id_value
+      if id_param_key.is_a? Array
+        for ind_id_key in id_param_key
+          if @params[ind_id_key].present?
+            return @params[ind_id_key].to_s
+          end
+        end
+      else
+        return @params[id_param_key].to_s
+      end
+    end
+
     def find_resource_by_id
       if id_param_key.is_a? Array
         for ind_id_key in id_param_key
