@@ -24,7 +24,7 @@ module CanCan
 
     def initialize(controller, *args)
       @controller = controller
-      @params = controller.params
+      @params = controller.params.to_unsafe_h 
       @options = args.extract_options!
       @name = args.first
     end
