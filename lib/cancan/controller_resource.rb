@@ -133,8 +133,8 @@ module CanCan
 
     def action_optional?(optional_enabled)
       return false unless optional_enabled
-      
-      return get_id_value.blank?
+
+      get_id_value.blank?
     end
 
     def adapter

@@ -97,6 +97,7 @@ module CanCan
 
     def authorization_action
       return @options[:action] if @options[:action]
+
       parent? ? parent_authorization_action : @params[:action].to_sym
     end
 
