@@ -3,8 +3,35 @@
 module CanCan
   def self.valid_accessible_by_strategies
     strategies = [:left_join]
-    strategies << :subquery unless does_not_support_subquery_strategy?
+
+    unless does_not_support_subquery_strategy?
+      strategies.push(:joined_alias_exists_subquery, :joined_alias_each_rule_as_exists_subquery, :subquery)
+    end
+
     strategies
+  end
+
+  # You can disable the rules compressor if it's causing unexpected issues.
+  def self.rules_compressor_enabled
+    return @rules_compressor_enabled if defined?(@rules_compressor_enabled)
+
+    @rules_compressor_enabled = true
+  end
+
+  def self.rules_compressor_enabled=(value)
+    @rules_compressor_enabled = value
+  end
+
+  def self.with_rules_compressor_enabled(value)
+    return yield if value == rules_compressor_enabled
+
+    begin
+      rules_compressor_enabled_was = rules_compressor_enabled
+      @rules_compressor_enabled = value
+      yield
+    ensure
+      @rules_compressor_enabled = rules_compressor_enabled_was
+    end
   end
 
   # Determines how CanCan should build queries when calling accessible_by,

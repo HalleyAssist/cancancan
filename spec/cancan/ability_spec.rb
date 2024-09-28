@@ -5,6 +5,21 @@ require 'spec_helper'
 describe CanCan::Ability do
   before(:each) do
     (@ability = double).extend(CanCan::Ability)
+
+    connect_db
+    ActiveRecord::Migration.verbose = false
+    ActiveRecord::Schema.define do
+      create_table(:named_users) do |t|
+        t.string :first_name
+        t.string :last_name
+      end
+    end
+
+    unless defined?(NamedUser)
+      class NamedUser < ActiveRecord::Base
+        attribute :role, :string # Virtual only
+      end
+    end
   end
 
   it 'is able to :read anything' do
@@ -124,6 +139,17 @@ describe CanCan::Ability do
       @block_called = true
     end
     @ability.can?(:foo, 123)
+    expect(@block_called).to be(true)
+  end
+
+  it 'allows passing nil as extra arguments' do
+    @ability.can :to_s, Integer do |integer, arg1, arg2|
+      expect(integer).to eq(42)
+      expect(arg1).to eq(nil)
+      expect(arg2).to eq(:foo)
+      @block_called = true
+    end
+    @ability.can?(:to_s, 42, nil, nil, :foo)
     expect(@block_called).to be(true)
   end
 
@@ -640,13 +666,10 @@ describe CanCan::Ability do
   end
 
   it 'returns an array of permitted attributes for a given action and subject' do
-    user_class = Class.new(ActiveRecord::Base)
-    allow(user_class).to receive(:column_names).and_return(%w[first_name last_name])
-    allow(user_class).to receive(:primary_key).and_return('id')
-    @ability.can :read, user_class
+    @ability.can :read, NamedUser
     @ability.can :read, Array, :special
     @ability.can :action, :subject, :attribute
-    expect(@ability.permitted_attributes(:read, user_class)).to eq(%i[first_name last_name])
+    expect(@ability.permitted_attributes(:read, NamedUser)).to eq(%i[id first_name last_name role])
     expect(@ability.permitted_attributes(:read, Array)).to eq([:special])
     expect(@ability.permitted_attributes(:action, :subject)).to eq([:attribute])
   end
@@ -827,6 +850,40 @@ describe CanCan::Ability do
 
       @ability.merge(another_ability)
       expect(@ability.send(:rules).size).to eq(0)
+    end
+  end
+
+  describe 'when #can? is used with a Hash (nested resources)' do
+    it 'is unauthorized with no rules' do
+      expect(@ability.can?(:read, 1 => Symbol)).to be(false)
+    end
+
+    it 'is authorized when the child is authorized' do
+      @ability.can :read, Symbol
+      expect(@ability.can?(:read, 1 => Symbol)).to be(true)
+    end
+
+    it 'is authorized when the condition doesn\'t concern the parent' do
+      @ability.can :read, Symbol, whatever: true
+      expect(@ability.can?(:read, 1 => Symbol)).to be(true)
+    end
+
+    it 'verifies the parent against an equality condition' do
+      @ability.can :read, Symbol, integer: 1
+      expect(@ability.can?(:read, 1 => Symbol)).to be(true)
+      expect(@ability.can?(:read, 2 => Symbol)).to be(false)
+    end
+
+    it 'verifies the parent against an array condition' do
+      @ability.can :read, Symbol, integer: [0, 1]
+      expect(@ability.can?(:read, 1 => Symbol)).to be(true)
+      expect(@ability.can?(:read, 2 => Symbol)).to be(false)
+    end
+
+    it 'verifies the parent against a hash condition' do
+      @ability.can :read, Symbol, integer: { to_i: 1 }
+      expect(@ability.can?(:read, 1 => Symbol)).to be(true)
+      expect(@ability.can?(:read, 2 => Symbol)).to be(false)
     end
   end
 end

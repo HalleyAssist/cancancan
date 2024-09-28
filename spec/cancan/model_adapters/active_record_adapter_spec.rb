@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-describe CanCan::ModelAdapters::ActiveRecordAdapter do
+RSpec.describe CanCan::ModelAdapters::ActiveRecordAdapter do
   let(:true_v) do
     ActiveRecord::Base.connection.quoted_true
   end
@@ -49,9 +49,20 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
         t.timestamps null: false
       end
 
+      create_table(:legacy_comments) do |t|
+        t.integer :post_id
+        t.timestamps null: false
+      end
+
       create_table(:legacy_mentions) do |t|
         t.integer :user_id
         t.integer :article_id
+        t.timestamps null: false
+      end
+
+      create_table(:attachments) do |t|
+        t.integer :attachable_id
+        t.string :attachable_type
         t.timestamps null: false
       end
 
@@ -62,6 +73,7 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
     end
 
     class Project < ActiveRecord::Base
+      has_many :articles
       has_many :comments
     end
 
@@ -80,6 +92,7 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
       has_many :mentioned_users, through: :mentions, source: :user
       belongs_to :user
       belongs_to :project
+      has_many :attachments, as: :attachable
 
       scope :unpopular, lambda {
         joins('LEFT OUTER JOIN comments ON (comments.post_id = posts.id)')
@@ -96,12 +109,24 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
 
     class Comment < ActiveRecord::Base
       belongs_to :article
+      belongs_to :project
+      has_many :attachments, as: :attachable
+    end
+
+    class LegacyComment < ActiveRecord::Base
+      belongs_to :article, foreign_key: 'post_id'
+      belongs_to :project
+    end
+
+    class Attachment < ActiveRecord::Base
+      belongs_to :attachable, polymorphic: true
     end
 
     class User < ActiveRecord::Base
       has_many :articles
       has_many :mentions
       has_many :mentioned_articles, through: :mentions, source: :article
+      has_many :comments, through: :articles
     end
 
     (@ability = double).extend(CanCan::Ability)
@@ -263,9 +288,9 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
       it 'raises an exception when trying to merge scope with other conditions' do
         @ability.can :read, Article, published: true
         @ability.can :read, Article, Article.where(secret: true)
-        expect(-> { Article.accessible_by(@ability) })
+        expect { Article.accessible_by(@ability) }
           .to raise_error(CanCan::Error,
-                          'Unable to merge an Active Record scope with other conditions. '\
+                          'Unable to merge an Active Record scope with other conditions. ' \
                             'Instead use a hash or SQL for read Article ability.')
       end
 
@@ -273,20 +298,20 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
         @ability.can :read, Article, published: true
         @ability.can :read, Article, Article.where(secret: true)
         @ability.cannot :read, Article
-        expect(-> { Article.accessible_by(@ability) }).not_to raise_error
+        expect { Article.accessible_by(@ability) }.not_to raise_error
       end
 
       it 'recognises empty scopes and compresses them' do
         @ability.can :read, Article, published: true
         @ability.can :read, Article, Article.all
-        expect(-> { Article.accessible_by(@ability) }).not_to raise_error
+        expect { Article.accessible_by(@ability) }.not_to raise_error
       end
 
       it 'does not allow to fetch records when ability with just block present' do
         @ability.can :read, Article do
           false
         end
-        expect(-> { Article.accessible_by(@ability) }).to raise_error(CanCan::Error)
+        expect { Article.accessible_by(@ability) }.to raise_error(CanCan::Error)
       end
 
       it 'should support more than one deeply nested conditions' do
@@ -300,7 +325,7 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
 
       it 'does not allow to check ability on object against SQL conditions without block' do
         @ability.can :read, Article, ['secret=?', true]
-        expect(-> { @ability.can? :read, Article.new }).to raise_error(CanCan::Error)
+        expect { @ability.can? :read, Article.new }.to raise_error(CanCan::Error)
       end
 
       it 'has false conditions if no abilities match' do
@@ -381,12 +406,26 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
         expect(@ability.model_adapter(Article, :read).joins).to be_nil
       end
 
-      it 'has nil joins if rules got compressed' do
-        @ability.can :read, Comment, article: { category: { visible: true } }
-        @ability.can :read, Comment
-        expect(@ability.model_adapter(Comment, :read))
-          .to generate_sql("SELECT \"#{@comment_table}\".* FROM \"#{@comment_table}\"")
-        expect(@ability.model_adapter(Comment, :read).joins).to be_nil
+      context 'if rules got compressed' do
+        it 'has nil joins' do
+          @ability.can :read, Comment, article: { category: { visible: true } }
+          @ability.can :read, Comment
+          expect(@ability.model_adapter(Comment, :read))
+            .to generate_sql("SELECT \"#{@comment_table}\".* FROM \"#{@comment_table}\"")
+          expect(@ability.model_adapter(Comment, :read).joins).to be_nil
+        end
+      end
+
+      context 'if rules did not get compressed' do
+        before :each do
+          CanCan.rules_compressor_enabled = false
+        end
+
+        it 'has joins' do
+          @ability.can :read, Comment, article: { category: { visible: true } }
+          @ability.can :read, Comment
+          expect(@ability.model_adapter(Comment, :read).joins).to be_present
+        end
       end
 
       it 'has nil joins if no nested hashes specified in conditions' do
@@ -440,6 +479,129 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
         ability.can :read, Article
         ability.cannot :read, Article, :secret
         expect(Article.accessible_by(ability)).to eq([article])
+      end
+
+      describe 'when can? is used with a Hash (nested resources)' do
+        it 'verifies parent equality correctly' do
+          user1 = User.create!(name: 'user1')
+          user2 = User.create!(name: 'user2')
+          category = Category.create!(name: 'cat')
+          article1 = Article.create!(name: 'article1', category: category, user: user1)
+          article2 = Article.create!(name: 'article2', category: category, user: user2)
+          comment1 = Comment.create!(article: article1)
+          comment2 = Comment.create!(article: article2)
+
+          ability1 = Ability.new(user1)
+          ability1.can :read, Article
+          ability1.can :manage, Article, user: user1
+          ability1.can :manage, Comment, article: user1.articles
+
+          expect(ability1.can?(:manage, { article1 => Comment })).to eq(true)
+          expect(ability1.can?(:manage, { article2 => Comment })).to eq(false)
+          expect(ability1.can?(:manage, { article1 => comment1 })).to eq(true)
+          expect(ability1.can?(:manage, { article2 => comment2 })).to eq(false)
+
+          ability2 = Ability.new(user2)
+
+          expect(ability2.can?(:manage, { article1 => Comment })).to eq(false)
+          expect(ability2.can?(:manage, { article2 => Comment })).to eq(false)
+          expect(ability2.can?(:manage, { article1 => comment1 })).to eq(false)
+          expect(ability2.can?(:manage, { article2 => comment2 })).to eq(false)
+        end
+      end
+    end
+  end
+
+  describe 'when can? is used with a Hash (nested resources)' do
+    let(:user1) { User.create!(name: 'user1') }
+    let(:user2) { User.create!(name: 'user2') }
+
+    before do
+      category = Category.create!(name: 'category')
+      @article1 = Article.create!(name: 'article1', category: category, user: user1)
+      @article2 = Article.create!(name: 'article2', category: category, user: user2)
+      @comment1 = Comment.create!(article: @article1)
+      @comment2 = Comment.create!(article: @article2)
+      @legacy_comment1 = LegacyComment.create!(article: @article1)
+      @legacy_comment2 = LegacyComment.create!(article: @article2)
+      @attachment1 = Attachment.create!(attachable: @article1)
+      @comment_attachment1 = Attachment.create!(attachable: @comment1)
+      @attachment2 = Attachment.create!(attachable: @article2)
+      @comment_attachment2 = Attachment.create!(attachable: @comment2)
+    end
+
+    context 'when conditions are defined using the parent model' do
+      let(:ability) do
+        Ability.new(user1).tap do |ability|
+          ability.can :read, Article
+          ability.can :manage, Article, user: user1
+          ability.can :manage, Comment, article: user1.articles
+          ability.can :manage, LegacyComment, article: user1.articles
+          ability.can :manage, Attachment, attachable: user1.articles
+          ability.can :manage, Attachment, attachable: user1.comments
+        end
+      end
+
+      it 'verifies parent equality correctly' do
+        expect(ability.can?(:manage, { @article1 => Comment })).to eq(true)
+        expect(ability.can?(:manage, { @article1 => LegacyComment })).to eq(true)
+        expect(ability.can?(:manage, { @article1 => @comment1 })).to eq(true)
+        expect(ability.can?(:manage, { @article1 => @legacy_comment1 })).to eq(true)
+
+        expect(ability.can?(:manage, { @article2 => Comment })).to eq(false)
+        expect(ability.can?(:manage, { @article2 => LegacyComment })).to eq(false)
+        expect(ability.can?(:manage, { @article2 => @legacy_comment2 })).to eq(false)
+      end
+
+      context 'when the association is polymorphic' do
+        it 'verifies parent equality correctly' do
+          expect(ability.can?(:manage, { @article1 => Attachment })).to eq(true)
+          expect(ability.can?(:manage, { @article1 => @attachment1 })).to eq(true)
+          expect(ability.can?(:manage, { @comment1 => Attachment })).to eq(true)
+          expect(ability.can?(:manage, { @comment1 => @comment_attachment1 })).to eq(true)
+
+          expect(ability.can?(:manage, { @article2 => Attachment })).to eq(false)
+          expect(ability.can?(:manage, { @article2 => @attachment2 })).to eq(false)
+          expect(ability.can?(:manage, { @comment2 => Attachment })).to eq(false)
+          expect(ability.can?(:manage, { @comment2 => @comment_attachment2 })).to eq(false)
+        end
+      end
+    end
+
+    context 'when conditions are defined using the parent id' do
+      let(:ability) do
+        Ability.new(user1).tap do |ability|
+          ability.can :read, Article
+          ability.can :manage, Article, user_id: user1.id
+          ability.can :manage, Comment, article_id: user1.article_ids
+          ability.can :manage, LegacyComment, post_id: user1.article_ids
+          ability.can :manage, Attachment, attachable_id: user1.article_ids
+        end
+      end
+
+      it 'verifies parent equality correctly' do
+        expect(ability.can?(:manage, { @article1 => Comment })).to eq(true)
+        expect(ability.can?(:manage, { @article1 => LegacyComment })).to eq(true)
+        expect(ability.can?(:manage, { @article1 => @comment1 })).to eq(true)
+        expect(ability.can?(:manage, { @article1 => @legacy_comment1 })).to eq(true)
+
+        expect(ability.can?(:manage, { @article2 => Comment })).to eq(false)
+        expect(ability.can?(:manage, { @article2 => LegacyComment })).to eq(false)
+        expect(ability.can?(:manage, { @article2 => @legacy_comment2 })).to eq(false)
+      end
+
+      context 'when the association is polymorphic' do
+        it 'verifies parent equality correctly' do
+          expect(ability.can?(:manage, { @article1 => Attachment })).to eq(true)
+          expect(ability.can?(:manage, { @article1 => @attachment1 })).to eq(true)
+          expect(ability.can?(:manage, { @comment1 => Attachment })).to eq(true)
+          expect(ability.can?(:manage, { @comment1 => @comment_attachment1 })).to eq(true)
+
+          expect(ability.can?(:manage, { @article2 => Attachment })).to eq(false)
+          expect(ability.can?(:manage, { @article2 => @attachment2 })).to eq(false)
+          expect(ability.can?(:manage, { @comment2 => Attachment })).to eq(false)
+          expect(ability.can?(:manage, { @comment2 => @comment_attachment2 })).to eq(false)
+        end
       end
     end
   end
@@ -523,6 +685,199 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
         expect(Comment.accessible_by(@ability).joins(:article).order('articles.name'))
           .to match_array([comment2, comment1])
       end
+    end
+  end
+
+  it 'allows an empty array to be used as a condition for a has_many, but this is never a passing condition' do
+    a1 = Article.create!
+    a2 = Article.create!
+    a2.comments = [Comment.create!]
+
+    @ability.can :read, Article, comment_ids: []
+
+    expect(@ability.can?(:read, a1)).to eq(false)
+    expect(@ability.can?(:read, a2)).to eq(false)
+
+    expect(Article.accessible_by(@ability)).to eq([])
+
+    if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
+      expect(@ability.model_adapter(Article, :read)).to generate_sql(%(
+  SELECT "articles".*
+  FROM "articles"
+  WHERE 1=0))
+    end
+  end
+
+  it 'allows a nil to be used as a condition for a has_many - with join' do
+    a1 = Article.create!
+    a2 = Article.create!
+    a2.comments = [Comment.create!]
+
+    @ability.can :read, Article, comments: { id: nil }
+
+    expect(@ability.can?(:read, a1)).to eq(true)
+    expect(@ability.can?(:read, a2)).to eq(false)
+
+    expect(Article.accessible_by(@ability)).to eq([a1])
+
+    if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
+      expect(@ability.model_adapter(Article, :read)).to generate_sql(%(
+  SELECT "articles".*
+  FROM "articles"
+  WHERE "articles"."id" IN (SELECT "articles"."id" FROM "articles"
+    LEFT OUTER JOIN "comments" ON "comments"."article_id" = "articles"."id"
+    WHERE "comments"."id" IS NULL)))
+    end
+  end
+
+  it 'allows several nils to be used as a condition for a has_many - with join' do
+    a1 = Article.create!
+    a2 = Article.create!
+    a2.comments = [Comment.create!]
+
+    @ability.can :read, Article, comments: { id: nil, spam: nil }
+
+    expect(@ability.can?(:read, a1)).to eq(true)
+    expect(@ability.can?(:read, a2)).to eq(false)
+
+    expect(Article.accessible_by(@ability)).to eq([a1])
+
+    if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
+      expect(@ability.model_adapter(Article, :read)).to generate_sql(%(
+  SELECT "articles".*
+  FROM "articles"
+  WHERE "articles"."id" IN (SELECT "articles"."id" FROM "articles"
+    LEFT OUTER JOIN "comments" ON "comments"."article_id" = "articles"."id"
+    WHERE "comments"."id" IS NULL AND "comments"."spam" IS NULL)))
+    end
+  end
+
+  it 'doesn\'t permit anything if a nil is used as a condition for a has_many alongside other attributes' do
+    a1 = Article.create!
+    a2 = Article.create!
+    a2.comments = [Comment.create!(spam: true)]
+    a3 = Article.create!
+    a3.comments = [Comment.create!(spam: false)]
+
+    # if we are checking for `id: nil` and any other criteria, we should never return any Article.
+    # either the Article has Comments, which means `id: nil` fails.
+    # or the Article has no Comments, which means `spam: true` fails.
+    @ability.can :read, Article, comments: { id: nil, spam: true }
+
+    expect(@ability.can?(:read, a1)).to eq(false)
+    expect(@ability.can?(:read, a2)).to eq(false)
+    expect(@ability.can?(:read, a3)).to eq(false)
+
+    expect(Article.accessible_by(@ability)).to eq([])
+
+    if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
+      expect(@ability.model_adapter(Article, :read)).to generate_sql(%(
+  SELECT "articles".*
+  FROM "articles"
+  WHERE "articles"."id" IN (SELECT "articles"."id" FROM "articles"
+    LEFT OUTER JOIN "comments" ON "comments"."article_id" = "articles"."id"
+    WHERE "comments"."id" IS NULL AND "comments"."spam" = #{true_v})))
+    end
+  end
+
+  it 'doesn\'t permit if a nil is used as a condition for a has_many alongside other attributes - false case' do
+    a1 = Article.create!
+    a2 = Article.create!
+    a2.comments = [Comment.create!(spam: true)]
+    a3 = Article.create!
+    a3.comments = [Comment.create!(spam: false)]
+
+    # if we are checking for `id: nil` and any other criteria, we should never return any Article.
+    # either the Article has Comments, which means `id: nil` fails.
+    # or the Article has no Comments, which means `spam: false` fails.
+    @ability.can :read, Article, comments: { id: nil, spam: false }
+
+    expect(@ability.can?(:read, a1)).to eq(false)
+    expect(@ability.can?(:read, a2)).to eq(false)
+    expect(@ability.can?(:read, a3)).to eq(false)
+
+    expect(Article.accessible_by(@ability)).to eq([])
+
+    if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
+      expect(@ability.model_adapter(Article, :read)).to generate_sql(%(
+  SELECT "articles".*
+  FROM "articles"
+  WHERE "articles"."id" IN (SELECT "articles"."id" FROM "articles"
+    LEFT OUTER JOIN "comments" ON "comments"."article_id" = "articles"."id"
+    WHERE "comments"."id" IS NULL AND "comments"."spam" = #{false_v})))
+    end
+  end
+
+  it 'allows a nil to be used as a condition for a has_many when combined with other conditions' do
+    a1 = Article.create!
+    a2 = Article.create!
+    a2.comments = [Comment.create!(spam: true)]
+    a3 = Article.create!
+    a3.comments = [Comment.create!(spam: false)]
+
+    @ability.can :read, Article, comments: { spam: true }
+    @ability.can :read, Article, comments: { id: nil }
+
+    expect(@ability.can?(:read, a1)).to eq(true) # true because no comments
+    expect(@ability.can?(:read, a2)).to eq(true) # true because has comments but they have spam=true
+    expect(@ability.can?(:read, a3)).to eq(false) # false because has comments but none with spam=true
+
+    expect(Article.accessible_by(@ability).sort_by(&:id)).to eq([a1, a2].sort_by(&:id))
+
+    if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
+      expect(@ability.model_adapter(Article, :read)).to generate_sql(%(
+  SELECT "articles".*
+  FROM "articles"
+  WHERE "articles"."id" IN (SELECT "articles"."id" FROM "articles"
+    LEFT OUTER JOIN "comments" ON "comments"."article_id" = "articles"."id"
+    WHERE (("comments"."id" IS NULL) OR ("comments"."spam" = #{true_v})))))
+    end
+  end
+
+  it 'allows a nil to be used as a condition for a has_many alongside other attributes on the parent' do
+    a1 = Article.create!(secret: true)
+    a2 = Article.create!(secret: true)
+    a2.comments = [Comment.create!]
+    a3 = Article.create!(secret: false)
+    a3.comments = [Comment.create!]
+    a4 = Article.create!(secret: false)
+
+    @ability.can :read, Article, secret: true, comments: { id: nil }
+
+    expect(@ability.can?(:read, a1)).to eq(true)
+    expect(@ability.can?(:read, a2)).to eq(false)
+    expect(@ability.can?(:read, a3)).to eq(false)
+    expect(@ability.can?(:read, a4)).to eq(false)
+
+    expect(Article.accessible_by(@ability)).to eq([a1])
+
+    if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
+      expect(@ability.model_adapter(Article, :read)).to generate_sql(%(
+  SELECT "articles".*
+  FROM "articles"
+  WHERE "articles"."id" IN (SELECT "articles"."id" FROM "articles"
+    LEFT OUTER JOIN "comments" ON "comments"."article_id" = "articles"."id"
+    WHERE "articles"."secret" = #{true_v} AND "comments"."id" IS NULL)))
+    end
+  end
+
+  it 'allows an empty array to be used as a condition for a belongs_to; this never returns true' do
+    a1 = Article.create!
+    a2 = Article.create!
+    a2.project = Project.create!
+
+    @ability.can :read, Article, project_id: []
+
+    expect(@ability.can?(:read, a1)).to eq(false)
+    expect(@ability.can?(:read, a2)).to eq(false)
+
+    expect(Article.accessible_by(@ability)).to eq([])
+
+    if CanCan::ModelAdapters::ActiveRecordAdapter.version_greater_or_equal?('5.0.0')
+      expect(@ability.model_adapter(Article, :read)).to generate_sql(%(
+  SELECT "articles".*
+  FROM "articles"
+  WHERE 1=0))
     end
   end
 
@@ -641,7 +996,7 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
       expect(ability.can?(:read, Foo)).to eq(true)
     end
 
-    it 'allows for access with association with accesible_by' do
+    it 'allows for access with association with accessible_by' do
       user = User.new
       foo = Foo.create(name: 'foo')
       bar = Bar.create(name: 'bar')
@@ -664,7 +1019,7 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
       expect(ability.can?(:read, Foo)).to eq(false)
     end
 
-    it 'blocks access with association for accesible_by' do
+    it 'blocks access with association for accessible_by' do
       user = User.create!
       foo = Foo.create(name: 'foo')
       role = Role.create(name: 'adviser')
@@ -1004,6 +1359,43 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
     end
   end
 
+  context 'with rule application to subclass for non sti class' do
+    before do
+      ActiveRecord::Schema.define do
+        create_table :parents, force: true
+
+        create_table :children, force: true
+      end
+
+      class ApplicationRecord < ActiveRecord::Base
+        self.abstract_class = true
+      end
+
+      class Parent < ActiveRecord::Base
+      end
+
+      class Child < Parent
+      end
+    end
+
+    it 'cannot rules are not effecting parent class' do
+      u1 = User.create!(name: 'pippo')
+      ability = Ability.new(u1)
+      ability.can :manage, Parent
+      ability.cannot :manage, Child
+      expect(ability).not_to be_able_to(:index, Child)
+      expect(ability).to be_able_to(:index, Parent)
+    end
+
+    it 'can rules are not effecting parent class' do
+      u1 = User.create!(name: 'pippo')
+      ability = Ability.new(u1)
+      ability.can :manage, Child
+      expect(ability).to be_able_to(:index, Child)
+      expect(ability).not_to be_able_to(:index, Parent)
+    end
+  end
+
   context 'when STI is in use' do
     before do
       ActiveRecord::Schema.define do
@@ -1013,6 +1405,7 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
 
         create_table(:vehicles) do |t|
           t.string :type
+          t.integer :capacity
         end
       end
 
@@ -1089,6 +1482,19 @@ describe CanCan::ModelAdapters::ActiveRecordAdapter do
       ability.can :read, [Motorbike]
       expect(ability).to be_able_to(:read, motorbike)
       expect(ability).to be_able_to(:read, Suzuki.new)
+    end
+
+    it 'allows a scope of a subclass for conditions' do
+      u1 = User.create!(name: 'pippo')
+      car = Car.create!(capacity: 2)
+      Car.create!(capacity: 4)
+      Motorbike.create!(capacity: 2)
+
+      ability = Ability.new(u1)
+      ability.can :read, [Car], Car.where(capacity: 2)
+      expect(Vehicle.accessible_by(ability)).to match_array([car])
+      expect(Car.accessible_by(ability)).to eq([car])
+      expect(Motorbike.accessible_by(ability)).to eq([])
     end
   end
 end
