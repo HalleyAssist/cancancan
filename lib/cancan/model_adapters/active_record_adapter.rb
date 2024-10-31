@@ -136,7 +136,12 @@ module CanCan
       end
 
       def build_relation(*where_conditions)
-        relation = @model_class.where(*where_conditions)
+        if where_conditions.is_a?(Array) && where_conditions.size == 1 && where_conditions.first.is_a?(Hash) && where_conditions.first.values.first.is_a?(Array) && @model_class.respond_to?(:where_any)
+          key, values = where_conditions.first.first
+          relation = @model_class.where_any(key, values)
+        else
+          relation = @model_class.where(*where_conditions)
+        end
         return relation unless joins.present?
 
         # subclasses must implement `build_joins_relation`
