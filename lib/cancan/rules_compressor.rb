@@ -29,7 +29,11 @@ module CanCan
       # e.g contact_id = 1, contact_id = [2, 3] => contact_id = [1, 2, 3]
       potentially_simplify_singular = rules.size > 1 && rules.all? do |rule|
         if rule.conditions.is_a?(Hash)
-          rule.conditions.size == 1
+          #  If there is only one column in the expressions, we can simplify it
+          # A hash of size one e.g { contact_id: [1,2] } or { contact_id: 1 } but not { contact: {id: 1}}
+          if rule.conditions.size == 1
+            !rule.conditions.values.first.is_a?(Hash)
+          end
         else
           false
         end
@@ -39,6 +43,7 @@ module CanCan
         potentially_simplify_singular = rules.map do |rule|
           rule.conditions.keys.first
         end.uniq
+
         if potentially_simplify_singular.size == 1
           new_valid_values = rules.map do |rule|
             r = rule.conditions.values
