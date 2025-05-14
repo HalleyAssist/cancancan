@@ -24,7 +24,8 @@ module CanCan
 
     def initialize(controller, *args)
       @controller = controller
-      @params = controller.params.to_unsafe_h
+      @params = controller.params
+      @params = @params.to_unsafe_h if @params.respond_to?(:to_unsafe_h)
       @options = args.extract_options!
       @name = args.first
     end
@@ -134,7 +135,7 @@ module CanCan
     def action_optional?(optional_enabled)
       return false unless optional_enabled
 
-      get_id_value.blank?
+      id_value.blank?
     end
 
     def adapter

@@ -54,9 +54,7 @@ module CanCan
           table_alias = "#{relation_name.to_s.pluralize}_#{model_class.table_name}".to_sym
 
           index = 1
-          while already_used?(table_alias, relation_name, path_to_key)
-            table_alias = "#{table_alias}_#{index += 1}".to_sym
-          end
+          table_alias = "#{table_alias}_#{index += 1}".to_sym while already_used?(table_alias, relation_name, path_to_key)
         end
         add_to_cache(table_alias, relation_name, path_to_key)
       end

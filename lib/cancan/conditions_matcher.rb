@@ -60,9 +60,7 @@ module CanCan
 
       adapter = model_adapter(subject)
 
-      if adapter.override_conditions_hash_matching?(subject, conditions)
-        return adapter.matches_conditions_hash?(subject, conditions)
-      end
+      return adapter.matches_conditions_hash?(subject, conditions) if adapter.override_conditions_hash_matching?(subject, conditions)
 
       matches_all_conditions?(adapter, subject, conditions)
     end

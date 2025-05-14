@@ -27,9 +27,7 @@ module CanCan
 
         def calculate_result_hash(model_class, key, value)
           reflection = model_class.reflect_on_association(key)
-          unless reflection
-            raise WrongAssociationName, "Association '#{key}' not defined in model '#{model_class.name}'"
-          end
+          raise WrongAssociationName, "Association '#{key}' not defined in model '#{model_class.name}'" unless reflection
 
           if normalizable_association? reflection
             key = reflection.options[:through]
