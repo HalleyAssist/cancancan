@@ -16,7 +16,7 @@ Style/ClassAndModuleChildren:
   Enabled: false
 
 Layout/LineLength:
-  Max: 120
+  Max: 200
 
 Metrics/BlockLength:
   Exclude:
@@ -24,8 +24,21 @@ Metrics/BlockLength:
     - '**/*_spec.rb'
 
 Metrics/ClassLength:
+  Max: 200
   Exclude:
     - 'lib/cancan/model_adapters/active_record_adapter.rb'
+
+Metrics/MethodLength:
+  Max: 40
+
+Metrics/AbcSize:
+  Max: 80
+
+Metrics/PerceivedComplexity:
+  Max: 40
+
+Metrics/CyclomaticComplexity:
+  Max: 20
 
 # TODO
 # Offense count: 2

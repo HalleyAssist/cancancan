@@ -31,9 +31,7 @@ module CanCan
         if rule.conditions.is_a?(Hash)
           #  If there is only one column in the expressions, we can simplify it
           # A hash of size one e.g { contact_id: [1,2] } or { contact_id: 1 } but not { contact: {id: 1}}
-          if rule.conditions.size == 1
-            !rule.conditions.values.first.is_a?(Hash)
-          end
+          !rule.conditions.values.first.is_a?(Hash) if rule.conditions.size == 1
         else
           false
         end
@@ -54,6 +52,9 @@ module CanCan
               [r]
             end
           end.flatten.uniq
+
+          # if is numeric, sort the values
+          new_valid_values.sort! if new_valid_values.all? { |v| v.is_a?(Numeric) }
 
           h = {}
           h[potentially_simplify_singular.first] = new_valid_values

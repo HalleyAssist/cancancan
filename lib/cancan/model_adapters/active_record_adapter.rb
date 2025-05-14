@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-# rubocop:disable Metrics/AbcSize
-# rubocop:disable Metrics/CyclomaticComplexity
-# rubocop:disable Metrics/PerceivedComplexity
 module CanCan
   module ModelAdapters
     class ActiveRecordAdapter < AbstractAdapter
@@ -225,10 +222,6 @@ module CanCan
     end
   end
 end
-# rubocop:enable Metrics/PerceivedComplexity
-# rubocop:enable Metrics/CyclomaticComplexity
-# rubocop:enable Metrics/AbcSize
-
 ActiveSupport.on_load(:active_record) do
   send :include, CanCan::ModelAdditions
 end

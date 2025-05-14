@@ -14,7 +14,7 @@ module CanCan
       end
     end
 
-    def get_id_value
+    def id_value
       if id_param_key.is_a? Array
         id_param_key.each do |ind_id_key|
           return @params[ind_id_key].to_s if @params[ind_id_key].present?

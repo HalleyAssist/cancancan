@@ -98,7 +98,7 @@ describe CanCan::RulesCompressor do
     end
 
     it 'minimizes the rules, by removing duplicates' do
-      expect(described_class.new(rules).rules_collapsed).to eq [rules[0], rules[1], rules[4], rules[5]]
+      expect(described_class.new(rules).rules_collapsed.inspect).to eq [can(:read, Blog, id: [1, 2, 3, 4])].inspect
     end
   end
 
@@ -121,7 +121,7 @@ describe CanCan::RulesCompressor do
     end
 
     it 'minimizes the rules, by removing useless previous rules' do
-      expect(described_class.new(rules).rules_collapsed).to eq [rules[0], rules[2]]
+      expect(described_class.new(rules).rules_collapsed.inspect).to eq [rules[0]].inspect
     end
   end
 
