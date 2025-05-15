@@ -38,7 +38,7 @@ module CanCan
     def authorize_resource
       return if skip?(:authorize)
 
-      @controller.authorize!(authorization_action, resource_instance || resource_class_with_parent)
+      @controller.authorize!(authorization_action, resource_instance || resource_class)
     end
 
     def parent?
@@ -84,10 +84,6 @@ module CanCan
       new_actions.include?(@params[:action].to_sym) || @options[:singleton] ||
         ((@params[:id] || id_param) &&
           !collection_actions.include?(@params[:action].to_sym))
-    end
-
-    def resource_class_with_parent
-      parent_resource ? { parent_resource => resource_class } : resource_class
     end
 
     def resource_instance=(instance)
