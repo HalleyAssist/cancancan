@@ -14,6 +14,7 @@ module CanCan
       #
       def load_and_authorize_resource(*args)
         cancan_resource_class.add_before_action(self, :load_and_authorize_resource, *args)
+        cancan_resource_class.add_after_action(self, :cleanup_cancan_resource, *args)
       end
 
       # Sets up a before filter which loads the model resource into an instance variable.

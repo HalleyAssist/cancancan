@@ -18,6 +18,15 @@ module CanCan
       end
     end
 
+    def self.add_after_action(controller_class, method, *args)
+      options = args.extract_options!
+      resource_name = args.first
+      controller_class.send(:after_action, options.slice(:only, :except, :if, :unless)) do |controller|
+        controller.class.cancan_resource_class
+                  .new(controller, resource_name, options.except(:only, :except, :if, :unless)).send(method)
+      end
+    end
+
     def self.before_callback_name(options)
       options.delete(:prepend) ? :prepend_before_action : :before_action
     end
@@ -52,6 +61,19 @@ module CanCan
         options[:except] && !action_exists_in?(options[:except]) ||
         options[:only] && action_exists_in?(options[:only]) ||
         action_optional?(options[:optional])
+    end
+
+    def cleanup_cancan_resource
+      # Clear the instance variable if it was set
+      if @controller.instance_variable_defined?("@#{instance_name}")
+        @controller.remove_instance_variable("@#{instance_name}")
+      end
+      
+      # Clear the collection instance variable if it was set
+      collection_var_name = "@#{instance_name.to_s.pluralize}"
+      if @controller.instance_variable_defined?(collection_var_name)
+        @controller.remove_instance_variable(collection_var_name)
+      end
     end
 
     protected
